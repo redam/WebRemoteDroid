@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Web Remote Droid</string>
+    <string name="pref_boot">Start at boot</string>
+    <string name="pref_port">Port</string>
+    <string name="pref_http_auth">HTTP Authentication</string>
+    <string name="pref_http_user">Auth username</string>
+    <string name="pref_http_password">Auth password</string>
+    <string name="service_status">Service status</string>
+    <string name="preferences">Preferences</string>
+    <string name="title_activity_select_apps">Select app to be able to launch remotely</string>
+    <string name="add_app">Add an app to launch remotely</string>
+    <string name="app_list_title">List of app allowed to be launched remotely (touch one to delete)</string>
+    <string name="app_info">App info</string>
+    <string name="app_popup">Use the following HTTP request to launch this app : http://phoneIP:port/</string>
+    <string name="ok">OK</string>
+    <string name="delete">Delete from list</string>
+</resources>
