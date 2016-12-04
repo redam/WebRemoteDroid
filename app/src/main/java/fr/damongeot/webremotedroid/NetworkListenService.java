@@ -39,7 +39,11 @@ import java.util.regex.Pattern;
  */
 public class NetworkListenService extends IntentService {
     private final static String TAG = "NetworkListenService";
-    private final static int ACTION_START_APP = 1, ACTION_STOP_APP = 2;
+    private final static int ACTION_NO_OP = 0,
+            ACTION_START_APP = 1,
+            ACTION_STOP_APP = 2,
+            ACTION_FLASH_ON = 3,
+            ACTION_FLASH_OFF = 4;
 
     private int mPort;
     private ServerSocket mServerSocket;
@@ -101,7 +105,7 @@ public class NetworkListenService extends IntentService {
         String packageName = null;
         boolean foundAuthHeader = false;
         boolean authSucceed = false;
-        int action = ACTION_START_APP;
+        int action = ACTION_NO_OP;
         String outputMessage = "";
 
         try {
@@ -109,9 +113,15 @@ public class NetworkListenService extends IntentService {
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             String line;
 
-            //pattern for start/stop app
-            Pattern pAppStartStop = Pattern.compile("GET /app/(start|stop)/([^ ]*).*"); //match GET request
+            //pattern for auth
             Pattern pAuth = Pattern.compile("Authorization: Basic (.*)"); //match Authorization header
+
+            //pattern for start/stop app
+            Pattern pApp = Pattern.compile("GET /app/(start|stop)/([^ ]*).*");
+
+            //pattern for flash
+            Pattern pFlash = Pattern.compile("GET /flash/(on|off) .*");
+
 
             while (!TextUtils.isEmpty(line = reader.readLine())) {
 
@@ -122,61 +132,74 @@ public class NetworkListenService extends IntentService {
                     authSucceed = checkAuth(m.group(1));
                     break;
                 }
+
                 //is it an app start/stop request
-                m = pAppStartStop.matcher(line);
+                m = pApp.matcher(line);
                 if (m.matches()) {
-                    Log.d(TAG, m.group(2));
+                    //Log.d(TAG, m.group(2));
                     packageName = m.group(2);
                     action = m.group(1).equals("start") ? ACTION_START_APP:ACTION_STOP_APP;
                     break;
                 }
+
+                //is it a flash request
+                m = pFlash.matcher(line);
+                if (m.matches()) {
+                    action = m.group(1).equals("on") ? ACTION_FLASH_ON:ACTION_FLASH_OFF;
+                    break;
+                }
+
                 //Log.d(TAG,"Unknow line : "+line);
             }
 
             // GET header arrives before authorization so we cant tread it in while loop
-            if(packageName!=null) {
-                if (!httpAuth || authSucceed) {
-                    Application app;
+            if (!httpAuth || authSucceed) {
+                Application app;
+                fr.damongeot.webremotedroid.Camera cam;
 
-                    switch (action) {
-                        case ACTION_START_APP:
-                            app = new Application(getBaseContext());
-                            try {
-                                app.launch(packageName);
-                                outputMessage = "App launched";
-                            } catch (Exception e) {
-                                outputMessage = e.getMessage();
-                            }
-                            break;
-                        case ACTION_STOP_APP:
-                            app = new Application(getBaseContext());
-                            app.killPackageProcesses(packageName);
-                            break;
-                    }
-
+                switch (action) {
+                    case ACTION_START_APP:
+                        app = new Application(getBaseContext());
+                        try {
+                            app.launch(packageName);
+                            outputMessage = "App launched";
+                        } catch (Exception e) {
+                            outputMessage = e.getMessage();
+                        }
+                        break;
+                    case ACTION_STOP_APP:
+                        app = new Application(getBaseContext());
+                        app.killPackageProcesses(packageName);
+                        break;
+                    case ACTION_FLASH_ON:
+                        cam = new fr.damongeot.webremotedroid.Camera(getBaseContext());
+                        cam.setFlash(true);
+                        break;
+                    case ACTION_FLASH_OFF:
+                        cam = new fr.damongeot.webremotedroid.Camera(getBaseContext());
+                        cam.setFlash(false);
+                        break;
+                    default:
+                        outputMessage = "Invalid request";
+                        break;
                 }
+
             }
 
             // Output stream that we send the response to
             output = new PrintStream(socket.getOutputStream());
 
-            // Prepare the content to send.
-            if (packageName == null) {
-                output.println("HTTP/1.0 404 Not Found");
-                output.flush();
+            // Send out the content.
+            //if no authorization sent while http auth enabled, send auth headers
+            if(httpAuth && ! authSucceed) {
+                output.println("HTTP/1.0 401 Unauthorized");
+                output.println("WWW-Authenticate: Basic realm=\"Web Remote Droid\"");
             } else {
-                // Send out the content.
-                //if no authorization sent while http auth enabled, send auth headers
-                if(httpAuth && ! authSucceed) {
-                    output.println("HTTP/1.0 401 Unauthorized");
-                    output.println("WWW-Authenticate: Basic realm=\"Web Remote Droid\"");
-                } else {
-                    output.println("HTTP/1.0 200 OK");
-                    output.println("");
-                    output.println(outputMessage);
-                }
-                output.flush();
+                output.println("HTTP/1.0 200 OK");
+                output.println("");
+                output.println(outputMessage);
             }
+            output.flush();
         } finally {
             if (null != output) {
                 output.close();
