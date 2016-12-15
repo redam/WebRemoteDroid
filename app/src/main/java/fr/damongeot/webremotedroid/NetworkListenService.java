@@ -130,7 +130,6 @@ public class NetworkListenService extends IntentService {
                 if(m.matches()) {
                     //Log.d(TAG,"found authorization header : "+line);
                     authSucceed = checkAuth(m.group(1));
-                    break;
                 }
 
                 //is it an app start/stop request
@@ -139,14 +138,12 @@ public class NetworkListenService extends IntentService {
                     //Log.d(TAG, m.group(2));
                     packageName = m.group(2);
                     action = m.group(1).equals("start") ? ACTION_START_APP:ACTION_STOP_APP;
-                    break;
                 }
 
                 //is it a flash request
                 m = pFlash.matcher(line);
                 if (m.matches()) {
                     action = m.group(1).equals("on") ? ACTION_FLASH_ON:ACTION_FLASH_OFF;
-                    break;
                 }
 
                 //Log.d(TAG,"Unknow line : "+line);

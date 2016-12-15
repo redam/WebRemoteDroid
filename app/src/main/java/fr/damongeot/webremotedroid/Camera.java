@@ -2,10 +2,13 @@ package fr.damongeot.webremotedroid;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraManager;
 import android.os.Build;
 import android.util.Log;
+
+import java.io.IOException;
 
 /**
  * Created by regis on 04/12/16.
@@ -19,6 +22,7 @@ public class Camera {
     private static android.hardware.Camera.Parameters params;
     private static boolean isFlashOn=false;
     private Context ctx;
+    private SurfaceTexture mPreviewTexture;
 
     public Camera(Context context) {
         ctx=context;
@@ -32,7 +36,7 @@ public class Camera {
     public void setFlash(boolean state) {
         if(isFlashOn == state) return;
 
-        if(Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+        if(Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             //use camera1 API before LOLLIPOP
 
             //get camera parameters if not already done
@@ -49,6 +53,13 @@ public class Camera {
             if (state) {
                 params.setFlashMode(android.hardware.Camera.Parameters.FLASH_MODE_TORCH);
                 mCamera.setParameters(params);
+                mPreviewTexture = new SurfaceTexture(0);
+                try {
+                    mCamera.setPreviewTexture(mPreviewTexture);
+                } catch (IOException e) {
+                    //dont care
+                    e.printStackTrace();
+                }
                 mCamera.startPreview();
                 Log.d(TAG, "setFlash() : flash on");
             } else {
@@ -58,7 +69,7 @@ public class Camera {
                 Log.d(TAG, "setFlash() : flash off");
             }
         } else {
-            //use camera2 api for LOLLIPOP and UP
+            //use camera2 api for Marshmallow and UP
 
             CameraManager mCamManager = (CameraManager) ctx.getSystemService(Context.CAMERA_SERVICE);
             String cameraId = null; // Usually front camera is at 0 position.
