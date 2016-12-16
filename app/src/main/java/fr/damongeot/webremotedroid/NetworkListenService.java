@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.app.ActivityManager;
 import android.app.IntentService;
 import android.app.KeyguardManager;
+import android.app.Service;
 import android.content.Intent;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -12,9 +13,12 @@ import android.content.pm.PackageManager;
 import android.hardware.Camera;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraManager;
+import android.os.AsyncTask;
 import android.os.Build;
+import android.os.IBinder;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
+import android.support.annotation.Nullable;
 import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Log;
@@ -27,6 +31,7 @@ import java.io.PrintStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.HashSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,7 +42,7 @@ import java.util.regex.Pattern;
  * <p>
  * helper methods.
  */
-public class NetworkListenService extends IntentService {
+public class NetworkListenService extends Service {
     private final static String TAG = "NetworkListenService";
     private final static int ACTION_NO_OP = 0,
             ACTION_START_APP = 1,
@@ -53,44 +58,54 @@ public class NetworkListenService extends IntentService {
     private String httpUsername,httpPassword;
     private ActivityManager am;
 
-    public NetworkListenService() {
-        super("NetworkListenService");
-    }
-
     @Override
-    protected void onHandleIntent(Intent intent) {
-        if (intent != null) {
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if(!mIsRunning) { //start only if not already running
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             mSP = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
-            httpAuth = mSP.getBoolean(MainActivity.HTTP_AUTHENTICATION,MainActivity.HTTP_AUTHENTICATION_DEF);
-            httpUsername = mSP.getString(MainActivity.HTTP_AUTHENTICATION_USER,MainActivity.HTTP_AUTHENTICATION_USER_DEF);
-            httpPassword = mSP.getString(MainActivity.HTTP_AUTHENTICATION_PASSWORD,MainActivity.HTTP_AUTHENTICATION_PASSWORD_DEF);
-            mPort = intent.getIntExtra(MainActivity.LISTENING_PORT,MainActivity.LISTENING_PORT_DEF);
+            httpAuth = mSP.getBoolean(MainActivity.HTTP_AUTHENTICATION, MainActivity.HTTP_AUTHENTICATION_DEF);
+            httpUsername = mSP.getString(MainActivity.HTTP_AUTHENTICATION_USER, MainActivity.HTTP_AUTHENTICATION_USER_DEF);
+            httpPassword = mSP.getString(MainActivity.HTTP_AUTHENTICATION_PASSWORD, MainActivity.HTTP_AUTHENTICATION_PASSWORD_DEF);
+            mPort = intent.getIntExtra(MainActivity.LISTENING_PORT, MainActivity.LISTENING_PORT_DEF);
             mIsRunning = true;
             am = (ActivityManager) getBaseContext().getSystemService(Context.ACTIVITY_SERVICE);
-            startServer();
+            new ListenOnTCP().execute();
         }
+
+        return Service.START_REDELIVER_INTENT;
     }
 
-    /**
-     * Listen on network and serve requests
-     */
-    private void startServer() {
-        try {
-            mServerSocket = new ServerSocket(mPort);
-            //acquire wakelock to prevent phone going to sleep and forbidding launching activity
-            while (mIsRunning) {
+    // listen on tcp socket for incoming connections
+    private class ListenOnTCP extends AsyncTask<Void,Void,Void> {
+
+        @Override
+        protected Void doInBackground(Void... voids) {
+            try {
+                mServerSocket = new ServerSocket(mPort);
+                mServerSocket.setSoTimeout(5000); //set a timeout to be able to regularly check for terminating the service
                 Log.d(TAG,"Listening on port "+mPort);
-                Socket socket = mServerSocket.accept();
-                handleRequest(socket);
-                socket.close();
+
+                while (mIsRunning) {
+                    try {
+                        Socket socket = mServerSocket.accept();
+                        handleRequest(socket);
+                        socket.close();
+                    } catch(SocketTimeoutException e) {
+                        //do nothing
+                    }
+                }
+
+                mServerSocket.close();
+            } catch (SocketException e) {
+                // The server was stopped; ignore.
+                Log.d(TAG,e.getMessage());
+            } catch (IOException e) {
+                Log.e(TAG, "Web server error.", e);
             }
-        } catch (SocketException e) {
-            // The server was stopped; ignore.
-            Log.d(TAG,e.getMessage());
-        } catch (IOException e) {
-            Log.e(TAG, "Web server error.", e);
+
+            return null;
         }
+
     }
 
     /**
@@ -167,14 +182,23 @@ public class NetworkListenService extends IntentService {
                     case ACTION_STOP_APP:
                         app = new Application(getBaseContext());
                         app.killPackageProcesses(packageName);
+                        outputMessage = "App stopped";
                         break;
                     case ACTION_FLASH_ON:
                         cam = new fr.damongeot.webremotedroid.Camera(getBaseContext());
-                        cam.setFlash(true);
+                        try {
+                            cam.setFlash(true);
+                        } catch (Exception e) {
+                            outputMessage = e.getMessage();
+                        }
                         break;
                     case ACTION_FLASH_OFF:
                         cam = new fr.damongeot.webremotedroid.Camera(getBaseContext());
-                        cam.setFlash(false);
+                        try {
+                            cam.setFlash(false);
+                        } catch (Exception e) {
+                            outputMessage = e.getMessage();
+                        }
                         break;
                     default:
                         outputMessage = "Invalid request";
@@ -221,6 +245,19 @@ public class NetworkListenService extends IntentService {
             Log.w(TAG,"User/password did not match : "+userpass);
             return false;
         }
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+
+    @Override
+    public void onDestroy() {
+        //stop listening on next socket timeout
+        mIsRunning=false;
     }
 
 }

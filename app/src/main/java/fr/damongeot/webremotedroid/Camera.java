@@ -2,6 +2,7 @@ package fr.damongeot.webremotedroid;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraManager;
@@ -33,7 +34,7 @@ public class Camera {
      * @param state true = flash on, false = flash off
      */
     @SuppressLint("NewApi")
-    public void setFlash(boolean state) {
+    public void setFlash(boolean state) throws Exception {
         if(isFlashOn == state) return;
 
         if(Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -70,6 +71,8 @@ public class Camera {
             }
         } else {
             //use camera2 api for Marshmallow and UP
+            if(! ctx.getApplicationContext().getPackageManager()
+            .hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH)) throw new Exception("No flash available");
 
             CameraManager mCamManager = (CameraManager) ctx.getSystemService(Context.CAMERA_SERVICE);
             String cameraId = null; // Usually front camera is at 0 position.

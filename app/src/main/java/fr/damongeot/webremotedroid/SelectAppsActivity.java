@@ -36,7 +36,7 @@ public class SelectAppsActivity extends ListActivity {
 
 		packageManager = getPackageManager();
 
-		new LoadApplications().execute();
+		new LoadApplications().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
 	}
 
 	public boolean onOptionsItemSelected(MenuItem item) {

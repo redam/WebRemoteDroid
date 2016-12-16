@@ -83,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG,"Starting service");
                 } else {
                     // The toggle is disabled
-                    if(intentNLS != null) stopService(intentNLS);
+                    stopService(new Intent(MainActivity.this, NetworkListenService.class));
                     Log.d(TAG,"Stoping service");
                 }
             }
