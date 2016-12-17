@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.AssetManager;
 import android.hardware.Camera;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraManager;
@@ -24,8 +25,10 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.WindowManager;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.ServerSocket;
@@ -48,7 +51,9 @@ public class NetworkListenService extends Service {
             ACTION_START_APP = 1,
             ACTION_STOP_APP = 2,
             ACTION_FLASH_ON = 3,
-            ACTION_FLASH_OFF = 4;
+            ACTION_FLASH_OFF = 4,
+            ACTION_GET = 5;
+    private String getString; //in case of GET request, what page requested
 
     private int mPort;
     private ServerSocket mServerSocket;
@@ -57,10 +62,12 @@ public class NetworkListenService extends Service {
     private boolean httpAuth; //is http authentication enabled ?
     private String httpUsername,httpPassword;
     private ActivityManager am;
+    private AssetManager assetManager;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if(!mIsRunning) { //start only if not already running
+            assetManager = getAssets();
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             mSP = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
             httpAuth = mSP.getBoolean(MainActivity.HTTP_AUTHENTICATION, MainActivity.HTTP_AUTHENTICATION_DEF);
@@ -126,6 +133,10 @@ public class NetworkListenService extends Service {
         try {
             // Read HTTP headers
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+            // Output stream that we send the response to
+            output = new PrintStream(socket.getOutputStream());
+
             String line;
 
             //pattern for auth
@@ -137,12 +148,15 @@ public class NetworkListenService extends Service {
             //pattern for flash
             Pattern pFlash = Pattern.compile("GET /flash/(on|off) .*");
 
+            //pattern for any other GET request
+            Pattern pGet = Pattern.compile("GET /(.*) .*");
+
 
             while (!TextUtils.isEmpty(line = reader.readLine())) {
 
                 //check for http authentication header
                 Matcher m = pAuth.matcher(line);
-                if(m.matches()) {
+                if (m.matches()) {
                     //Log.d(TAG,"found authorization header : "+line);
                     authSucceed = checkAuth(m.group(1));
                 }
@@ -152,13 +166,22 @@ public class NetworkListenService extends Service {
                 if (m.matches()) {
                     //Log.d(TAG, m.group(2));
                     packageName = m.group(2);
-                    action = m.group(1).equals("start") ? ACTION_START_APP:ACTION_STOP_APP;
+                    action = m.group(1).equals("start") ? ACTION_START_APP : ACTION_STOP_APP;
+                    continue;
                 }
 
                 //is it a flash request
                 m = pFlash.matcher(line);
                 if (m.matches()) {
-                    action = m.group(1).equals("on") ? ACTION_FLASH_ON:ACTION_FLASH_OFF;
+                    action = m.group(1).equals("on") ? ACTION_FLASH_ON : ACTION_FLASH_OFF;
+                    continue;
+                }
+
+                m = pGet.matcher(line);
+                if (m.matches()) {
+                    action = ACTION_GET;
+                    getString = m.group(1);
+                    continue;
                 }
 
                 //Log.d(TAG,"Unknow line : "+line);
@@ -200,6 +223,13 @@ public class NetworkListenService extends Service {
                             outputMessage = e.getMessage();
                         }
                         break;
+                    case ACTION_GET:
+                        try {
+                            handleGetAssetRequest(getString, output);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        break;
                     default:
                         outputMessage = "Invalid request";
                         break;
@@ -207,15 +237,13 @@ public class NetworkListenService extends Service {
 
             }
 
-            // Output stream that we send the response to
-            output = new PrintStream(socket.getOutputStream());
 
             // Send out the content.
             //if no authorization sent while http auth enabled, send auth headers
-            if(httpAuth && ! authSucceed) {
+            if (httpAuth && !authSucceed) {
                 output.println("HTTP/1.0 401 Unauthorized");
                 output.println("WWW-Authenticate: Basic realm=\"Web Remote Droid\"");
-            } else {
+            } else if (action != ACTION_GET) {
                 output.println("HTTP/1.0 200 OK");
                 output.println("");
                 output.println(outputMessage);
@@ -229,6 +257,26 @@ public class NetworkListenService extends Service {
                 reader.close();
             }
         }
+    }
+
+    /**
+     * Return asset matching get request
+     * @param getString
+     * @return
+     */
+    private void handleGetAssetRequest(String getString,PrintStream output) throws IOException {
+        byte[] buffer = new byte[4096];
+        int count;
+
+        if(getString.isEmpty()) getString = "index.html";
+        BufferedInputStream bis = new BufferedInputStream(assetManager.open(getString));
+
+        output.println("HTTP/1.0 200 OK");
+        output.println("");
+        while((count = bis.read(buffer,0,4096)) != -1) {
+            output.write(buffer,0,count);
+        }
+        output.flush();
     }
 
     /**
